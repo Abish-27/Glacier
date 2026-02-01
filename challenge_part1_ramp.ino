@@ -34,6 +34,7 @@ const int STEP    = 10;      // ramp step
 const int STEP_MS = 80;      // ramp delay
 const int delayNum = 50;
 const int turnAmount = 400;
+const int turn_90 = 1700;
 
 int turns = 0;
 int turn_dir = -1; //Lets do -1 is left, 1 is right
@@ -42,7 +43,6 @@ bool rightpath = false;
 int adjustment_factor = 0;
 String boxStatus = "search";
 
-String main_color = "green";
 
 enum Color { COLOR_UNKNOWN=0, COLOR_RED=1, COLOR_GREEN=2, COLOR_BLUE=3, COLOR_DARK=4 };
 
@@ -103,14 +103,8 @@ void loop() {
 void pathScan(){
   if (boxStatus == "search"){
     if (colorCheck() == "blue"){
-      pickBox();
+      placeBox();
       boxStatus = "picked";
-    }
-  }
-  else if (boxStatus == "picked"){
-    if (colorCheck() == "blue"){
-      dropBox();
-      boxStatus = "dropped";
     }
   }
   
