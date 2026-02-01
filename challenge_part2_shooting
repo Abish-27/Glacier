@@ -1,0 +1,225 @@
+// ====== PINS ======
+const int S0 = A0;
+const int S1 = A1;
+const int S2 = A2;
+const int S3 = A3;
+const int OUT = 12;      
+
+const int ENA = 5;      
+const int ENB = 10;      
+const int IN1 = 6;
+const int IN2 = 7;
+const int IN3 = 8;
+const int IN4 = 9;
+
+// ====== DRIVE TUNING ======
+const int BASE_SPD   = 190;   // 0..255
+const int SPIRAL_BIAS = 50;   
+const int STRONG_BIAS = 90;   // used if we drift outward
+const int CROSS_MS   = 250;   // after detecting new ring, move forward a bit
+const int LOOP_DELAY = 20;
+
+const unsigned long BLACK_R_LO = 1500, BLACK_R_HI = 2100;
+const unsigned long BLACK_G_LO = 1950, BLACK_G_HI = 2400;
+const unsigned long BLACK_B_LO = 1600, BLACK_B_HI = 2100;
+const unsigned long BLACK_C_LO = 520,  BLACK_C_HI = 820;
+
+const unsigned long WHITE_C_MAX = 120;
+const unsigned long WHITE_SPREAD_MAX = 80;
+
+// ====== COLOUR ENUM ======
+enum Colour { COL_UNKNOWN=0, COL_WHITE=1, COL_BLACK=2, COL_RED=3, COL_GREEN=4, COL_BLUE=5 };
+
+const Colour RING_ORDER[] = { COL_BLUE, COL_RED, COL_GREEN, COL_BLACK };
+int ringIndex = 0;  
+bool done = false;
+
+// ====== HELPERS ======
+inline bool inRange(unsigned long v, unsigned long lo, unsigned long hi) {
+  return v >= lo && v <= hi;
+}
+
+const char* colourName(Colour c) {
+  switch (c) {
+    case COL_WHITE: return "white";
+    case COL_BLACK: return "black";
+    case COL_RED:   return "red";
+    case COL_GREEN: return "green";
+    case COL_BLUE:  return "blue";
+    default:        return "unknown";
+  }
+}
+
+// ====== SENSOR READ ======
+unsigned long readPulse(bool s2, bool s3) {
+  digitalWrite(S2, s2 ? HIGH : LOW);
+  digitalWrite(S3, s3 ? HIGH : LOW);
+  delay(3);
+  unsigned long t = pulseIn(OUT, LOW, 50000);
+  if (t == 0) t = 50000;
+  return t;
+}
+
+unsigned long avgPulse(bool s2, bool s3, int n = 5) {
+  unsigned long sum = 0;
+  for (int i=0; i<n; i++) sum += readPulse(s2, s3);
+  return sum / n;
+}
+
+Colour colourCheckRaw(unsigned long r, unsigned long g, unsigned long b, unsigned long c) {
+  if (r >= 49000 && g >= 49000 && b >= 49000) return COL_UNKNOWN;
+
+  unsigned long maxRGB = max(r, max(g, b));
+  unsigned long minRGB = min(r, min(g, b));
+  unsigned long spread = maxRGB - minRGB;
+  if (c <= WHITE_C_MAX && spread <= WHITE_SPREAD_MAX) return COL_WHITE;
+
+  if (inRange(r, BLACK_R_LO, BLACK_R_HI) &&
+      inRange(g, BLACK_G_LO, BLACK_G_HI) &&
+      inRange(b, BLACK_B_LO, BLACK_B_HI) &&
+      inRange(c, BLACK_C_LO, BLACK_C_HI)) {
+    return COL_BLACK;
+  }
+
+  unsigned long m = min(r, min(g, b));
+  unsigned long second = (m == r) ? min(g, b) : (m == g ? min(r, b) : min(r, g));
+  const unsigned long MARGIN = 80;
+  if (second - m < MARGIN) return COL_UNKNOWN;
+
+  if (m == r) return COL_RED;
+  if (m == g) return COL_GREEN;
+  return COL_BLUE;
+}
+
+Colour colourCheck() {
+  unsigned long r = avgPulse(false, false);
+  unsigned long b = avgPulse(false, true);
+  unsigned long g = avgPulse(true,  true);
+  unsigned long c = avgPulse(true,  false);
+
+  Colour col = colourCheckRaw(r, g, b, c);
+
+  // debug
+  Serial.print("R "); Serial.print(r);
+  Serial.print(" G "); Serial.print(g);
+  Serial.print(" B "); Serial.print(b);
+  Serial.print(" C "); Serial.print(c);
+  Serial.print(" -> "); Serial.println(colourName(col));
+
+  return col;
+}
+
+// Stable read: require N same in a row
+Colour stableColour(int needed = 3) {
+  Colour last = COL_UNKNOWN;
+  int streak = 0;
+
+  for (int i=0; i<10; i++) {
+    Colour c = colourCheck();
+    if (c == last && c != COL_UNKNOWN && c != COL_WHITE) {
+      streak++;
+    } else {
+      last = c;
+      streak = 1;
+    }
+    if (streak >= needed) return last;
+    delay(10);
+  }
+  return last;
+}
+
+// ====== MOTORS ======
+void setDirection(bool dirA, bool dirB) {
+  digitalWrite(IN1, dirA ? HIGH : LOW);
+  digitalWrite(IN2, dirA ? LOW  : HIGH);
+  digitalWrite(IN3, dirB ? HIGH : LOW);
+  digitalWrite(IN4, dirB ? LOW  : HIGH);
+}
+
+void drive(int speedA, int speedB) {
+  speedA = constrain(speedA, 0, 255);
+  speedB = constrain(speedB, 0, 255);
+  analogWrite(ENA, speedA);
+  analogWrite(ENB, speedB);
+}
+
+void stopMotors() {
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+  digitalWrite(IN1, LOW); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW); digitalWrite(IN4, LOW);
+}
+
+void spiralIn(int bias) {
+  setDirection(true, true);
+  drive(BASE_SPD + bias, BASE_SPD - bias);
+}
+
+void crossBoundary() {
+  setDirection(true, true);
+  drive(BASE_SPD, BASE_SPD);
+  delay(CROSS_MS);
+}
+
+void shoot() {
+  forward(400);
+}
+
+// ====== SETUP / LOOP ======
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(S0, OUTPUT); pinMode(S1, OUTPUT);
+  pinMode(S2, OUTPUT); pinMode(S3, OUTPUT);
+  pinMode(OUT, INPUT);
+
+  // 20% scaling
+  digitalWrite(S0, LOW);
+  digitalWrite(S1, HIGH);
+
+  pinMode(ENA, OUTPUT); pinMode(ENB, OUTPUT);
+  pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
+
+  stopMotors();
+  delay(500);
+
+  // Initialise ringIndex based on starting colour (usually blue)
+  Colour start = stableColour(2);
+  for (int i=0; i<4; i++) {
+    if (start == RING_ORDER[i]) { ringIndex = i; break; }
+  }
+
+  Serial.print("Start ring guess: ");
+  Serial.println(colourName(RING_ORDER[ringIndex]));
+}
+
+void loop() {
+  if (done) return;
+
+  Colour c = stableColour(3);
+
+  // If we are on centre black, shoot once and stop
+  if (c == COL_BLACK) {
+    stopMotors();
+    shoot();
+    done = true;
+    return;
+  }
+
+  // If we see the next inner ring colour, advance our ringIndex
+  if (ringIndex < 3 && c == RING_ORDER[ringIndex + 1]) {
+    ringIndex++;
+    Serial.print("Entered ring: ");
+    Serial.println(colourName(RING_ORDER[ringIndex]));
+    crossBoundary();
+  }
+
+  if (ringIndex > 0 && c == RING_ORDER[ringIndex - 1]) {
+    spiralIn(STRONG_BIAS);
+  } else {
+    spiralIn(SPIRAL_BIAS);
+  }
+
+  delay(LOOP_DELAY);
+}
