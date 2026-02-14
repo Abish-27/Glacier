@@ -30,9 +30,11 @@ const int MIN_SPD = 120;     // raise if motors stall
 const int STEP    = 10;      // ramp step
 const int STEP_MS = 80;      // ramp delay
 const int delayNum = 50;
-const int turnAmount = 400;
+const int turnNormal = 400;
+const int turnSearch = 200;
 const int turn_90 = 1700;
 
+int turnAmount = turnSearch;
 int turns = 0;
 int turn_dir = -1; //Lets do -1 is left, 1 is right
 bool leftpath = true;
@@ -72,6 +74,7 @@ void setup() {
 
   arm.attach(SERVO_PIN);
   arm.write(ARM_UP);
+  //arm.write(ARM_MID);
 
   stopMotors();
   delay(1000);
@@ -110,6 +113,7 @@ void loop() {
 void pathScan(){
   if (boxStatus == "search"){
     if (colorCheck() == "blue"){
+      turnAmount = turnNormal;
       pickBox();
       boxStatus = "picked";
     }
@@ -128,25 +132,28 @@ void pathScan(){
 }
 
 void dropBox(){
-  turnLeft(turn_90);
+  turnLeft(turn_90 + 300);
+  forward(200);
   arm.write(ARM_DOWN);
   delay(300);
   turnLeft(100);
   arm.write(ARM_UP);
   delay(300);
-  turnRight(100 + turn_90);
-  forward(200);
+  backward(1000);
+  turnRight(800 + turn_90);
+  forward(1000);
 
 }
 void pickBox(){
-  backward(300);
+  backward(800);
+  arcLeft(600);
   arm.write(ARM_DOWN);
   delay(1000);
-  arcRight(3000);
+  arcRight(1800);
+  delay(400);
   moveArm(ARM_MID);
   delay(800);
-  arcLeft(3000);
-  forward(200);
+  arcLeft(1000);
 }
 
 bool obstacleAhead(){
@@ -163,7 +170,7 @@ bool obstacleAhead(){
 
   if (duration > 0) {
     distance_cm = (duration * 0.0343) / 2.0;
-    if (distance_cm < 20) return true;
+    if (distance_cm < 25) return true;
     else return false;
   }
   else return false;
@@ -173,11 +180,11 @@ void avoidObstacle(){
   Serial.println("Obstacel dete ted");
   backward(100);
   turnRight(turn_90);
-  forward(3500);
+  forward(3700);
   turnLeft(turn_90);
   forward(5200);
   turnLeft(turn_90);
-  forward(2500);
+  forward(1000);
   //arcRight(700);
   /* while(true){
       delay(100);
